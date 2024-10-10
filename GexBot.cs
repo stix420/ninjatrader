@@ -3,32 +3,29 @@
 using Newtonsoft.Json.Linq;
 using NinjaTrader.Gui;
 using NinjaTrader.Gui.Chart;
+using NinjaTrader.Gui.Tools;
+using NinjaTrader.NinjaScript.Indicators;
 using SharpDX;
+using SharpDX.Direct2D1;
 using SharpDX.DirectWrite;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Net.Http;
 using System.Timers;
 using System.Windows.Media;
-using NinjaTrader.NinjaScript.Indicators;
-using System.Linq;
-using NinjaTrader.Cbi;
-using NinjaTrader.Gui.Tools;
-using SharpDX.Direct2D1;
+using System.Xml.Serialization;
 using Brush = System.Windows.Media.Brush;
 using Ellipse = SharpDX.Direct2D1.Ellipse;
-using EllipseGeometry = SharpDX.Direct2D1.EllipseGeometry;
-using SharpDX.DirectWrite;
 using SolidColorBrush = System.Windows.Media.SolidColorBrush;
-using System.Xml.Serialization;
 
 #endregion
 
 namespace NinjaTrader.NinjaScript.Indicators
 {
-	[Gui.CategoryOrder(GENERAL_GROUP, 1)]
+    [Gui.CategoryOrder(GENERAL_GROUP, 1)]
 	[Gui.CategoryOrder(LINES_GROUP, 2)]
 	public class GexBot : Indicator
 	{
@@ -136,6 +133,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 				APIKey = "Insert Key Here";
 				Greek = "none";
 				iPos = 130;
+
+				GexAlingEjeProfile = GexAlingEjeProfile.Personalize;
+				DireccionPerfil = GexDirectionProfile.Both;
+                xPosPerfil = 1200;
+				withPerfil = 500;
+				
 				convFactor = 1;
 				iRefresh = 5;
 				iCouchRefresh = 3;
@@ -147,6 +150,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 				bShowStatus = true;
                 Negative = Brushes.Orange;
                 Positive = Brushes.Lime;
+				CenterProfile = Brushes.Black;
             }
 			else if (State == State.Configure)
 			{
@@ -175,6 +179,15 @@ namespace NinjaTrader.NinjaScript.Indicators
 				timer.Elapsed += OnTimedEvent;
 				timer.Enabled = true;
 
+				if (GexAlingEjeProfile == GexAlingEjeProfile.Left)
+				{
+					xPosPerfil = 5;
+				}
+				else if (GexAlingEjeProfile == GexAlingEjeProfile.Rigth)					
+				{
+					xPosPerfil = (int)ChartControl.ActualWidth - 5;
+				}
+
 				FetchData();
 				MaxChanges();
 			}
@@ -197,8 +210,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
 		#endregion
 
-		#region Timed Event / Render
-
+		#region RenderNuevo
 		protected override void OnRender(ChartControl chartControl, ChartScale chartScale)
 		{
 			base.OnRender(chartControl, chartScale);
@@ -272,18 +284,48 @@ namespace NinjaTrader.NinjaScript.Indicators
 						Ellipse eli2 = new Ellipse(new Vector2((float)xPutEnd, (float)yMiddle), GreekdotSize, GreekdotSize);
 						RenderTarget.FillEllipse(eli2, Brushes.Orange.ToDxBrush(RenderTarget));
 					}
-					catch { }
+                    catch { }
+            }
+
+            RenderTarget.DrawLine(new Vector2((float)xPosPerfil, (float)0), new Vector2((float)xPosPerfil, (float)chartControl.ActualHeight), CenterProfile.ToDxBrush(RenderTarget), 2, new StrokeStyle(Core.Globals.D2DFactory, strokeStyleProperties));
+
+            var dotsRender = ld.Where(x => x.price >= chartScale.MinValue && x.price <= chartScale.MaxValue).ToList();
+            double maxDotsVolumen = dotsRender.Any()
+                                    ? dotsRender.Max(x => Math.Abs(x.volume))
+                                    : 0;
+
+			double maximoAnchoPerfil = withPerfil;
+			if (DireccionPerfil == GexDirectionProfile.Both)
+			{
+				maximoAnchoPerfil = withPerfil / 2;
 			}
 
-			foreach (dots l in ld)
+			foreach (dots l in dotsRender)
 			{
 				try
 				{
 					double finalVol = Math.Abs(l.volume);
-					double xStart = chartControl.GetXByBarIndex(ChartBars, ChartBars.FromIndex);
-					finalVol = (finalVol * (WidthFactor / 100)) * chartControl.ActualWidth;
+					double xStart = xPosPerfil;
 					double yMiddle = chartScale.GetYByValue(l.price);
-					double xEnd = xStart + finalVol;
+
+					double withPrice = maxDotsVolumen > 0
+											? (finalVol / (double)maxDotsVolumen) * maximoAnchoPerfil / 2
+											: 0;
+
+					double xEnd = 0;
+					switch (DireccionPerfil)
+					{
+						case GexDirectionProfile.Left:
+							xEnd = xPosPerfil - withPrice;
+							break;
+						case GexDirectionProfile.Rigth:
+							xEnd = xPosPerfil + withPrice;
+							break;
+						case GexDirectionProfile.Both:
+							xEnd = l.volume < 0 ? xPosPerfil - withPrice : xPosPerfil + withPrice;
+							break;
+					}
+
 
 					Ellipse eli = new Ellipse(new Vector2((float)xEnd, (float)yMiddle), 3, 3);
 					switch (l.i)
@@ -308,16 +350,42 @@ namespace NinjaTrader.NinjaScript.Indicators
 				catch { }
 			}
 
-			foreach (lines l in ll)
+			var linesRender = ll.Where(x => x.price >= chartScale.MinValue && x.price <= chartScale.MaxValue).ToList();
+            double maxLinesVolumen = ll.Any() 
+									? ll.Max(x => Math.Abs(x.volume)) 
+									: 0;
+
+            foreach (lines l in linesRender)
 			{
 				try
 				{
 					double finalVol = Math.Abs(l.volume);
-					double xStart = chartControl.GetXByBarIndex(ChartBars, ChartBars.FromIndex);
-					finalVol = (finalVol * (WidthFactor / 100)) * chartControl.ActualWidth;
+					double xStart = xPosPerfil;
+					double withPrice = maxLinesVolumen > 0 
+											? (finalVol / (double)maxLinesVolumen) * maximoAnchoPerfil
+											: 0;
 
 					double yMiddle = chartScale.GetYByValue(l.price);
-					double xEnd = xStart + finalVol;
+
+                    double xEnd = 0;
+                    switch (DireccionPerfil)
+                    {
+                        case GexDirectionProfile.Left:
+                            xEnd = xPosPerfil - withPrice;
+                            break;
+                        case GexDirectionProfile.Rigth:
+                            xEnd = xPosPerfil + withPrice;
+                            break;
+                        case GexDirectionProfile.Both:
+                            xEnd = l.volume < 0 ? xPosPerfil - withPrice : xPosPerfil + withPrice;
+                            break;
+                    }
+
+         //           xEnd = l.volume < 0 
+									//? xPosPerfil - withPrice 
+									//: xPosPerfil + withPrice;
+
+
 					strokeStyleProperties = new StrokeStyleProperties
 					{
 						DashStyle = dashes
@@ -331,6 +399,144 @@ namespace NinjaTrader.NinjaScript.Indicators
 				catch { }
 			}
 		}
+		#endregion
+
+		#region RenderViejo
+		//      protected override void OnRender(ChartControl chartControl, ChartScale chartScale)
+		//{
+		//	base.OnRender(chartControl, chartScale);
+
+		//	if (chartControl == null || chartScale == null || bInProgress)
+		//		return;
+
+		//	if (Greek.IsNullOrEmpty())
+		//		Greek = "none";
+
+		//	if (bShowStatus)
+		//	{
+		//		try
+		//		{
+		//			int ia = VolGex.IndexOf('.');
+		//			if (ia != -1)
+		//				VolGex = VolGex.Substring(0, ia);
+		//			int iYPos = 130;
+		//			int iXPos = iPos;
+		//			DrawText(iXPos, iYPos, "GexBot " + sVersion + " (" + SubscriptionType.ToString().ToLower() + "/" + nextFull + ")", 16, Brushes.White);
+		//			if (Greek.Equals("none"))
+		//			{
+		//				if (VolGex.Contains("-"))
+		//					DrawText(iXPos, iYPos += 25, "Net GEX: " + VolGex, 15, Brushes.Orange);
+		//				else
+		//					DrawText(iXPos, iYPos += 25, "Net GEX: " + VolGex, 15, Brushes.Lime);
+		//			}
+		//			DrawText(iXPos, iYPos += 23, "Major Positive: " + VolMajPos, 14, Brushes.Lime);
+		//			DrawText(iXPos, iYPos += 23, "Major Negative: " + VolMinNeg, 14, Brushes.Orange);
+		//			if (Greek.Equals("none"))
+		//			{
+		//				DrawText(iXPos, iYPos += 23, "Zero Gamma: " + Vol0Gamma, 14, Brushes.Yellow);
+		//				DrawText(iXPos, iYPos += 23, "Delta Reversal: " + DeltaReversal, 14, Brushes.Yellow);
+		//			}
+		//		}
+		//		catch { }
+		//	}
+
+		//	if (bShowMaxChange && Greek.Equals("none"))
+		//	{
+		//		foreach (changes ch in lc)
+		//			try
+		//			{
+		//				if (ch.volume > 0)
+		//					DrawText((float)chartControl.ActualWidth - 100,
+		//						(float)chartScale.GetYByValue(ch.price), ch.price + " at " + ch.volume.ToString("F2") + " MM", 16, Brushes.Lime);
+		//				else
+		//					DrawText((float)chartControl.ActualWidth - 100,
+		//					(float)chartScale.GetYByValue(ch.price), ch.price + " at " + ch.volume.ToString("F2") + " MM", 16, Brushes.Orange);
+		//			}
+		//			catch { }
+		//	}
+
+		//	if (!Greek.Equals("none"))
+		//	{
+		//		foreach (lines l in ll)
+		//			try
+		//			{
+		//				double xStart = chartControl.GetXByBarIndex(ChartBars, ChartBars.FromIndex);
+		//				double yMiddle = chartScale.GetYByValue(l.price);
+
+		//				double dCall = Math.Abs(l.call);
+		//				dCall = dCall * chartControl.ActualWidth;
+		//				double xCallEnd = xStart + dCall;
+		//				Ellipse eli1 = new Ellipse(new Vector2((float)xCallEnd, (float)yMiddle), GreekdotSize, GreekdotSize);
+		//				RenderTarget.FillEllipse(eli1, Brushes.Lime.ToDxBrush(RenderTarget));
+
+		//				double dPut = Math.Abs(l.put);
+		//				dPut = dPut * chartControl.ActualWidth;
+		//				double xPutEnd = xStart + dPut;
+		//				Ellipse eli2 = new Ellipse(new Vector2((float)xPutEnd, (float)yMiddle), GreekdotSize, GreekdotSize);
+		//				RenderTarget.FillEllipse(eli2, Brushes.Orange.ToDxBrush(RenderTarget));
+		//			}
+		//			catch { }
+		//	}
+
+		//	foreach (dots l in ld)
+		//	{
+		//		try
+		//		{
+		//			double finalVol = Math.Abs(l.volume);
+		//			double xStart = chartControl.GetXByBarIndex(ChartBars, ChartBars.FromIndex);
+		//			finalVol = (finalVol * (WidthFactor / 100)) * chartControl.ActualWidth;
+		//			double yMiddle = chartScale.GetYByValue(l.price);
+		//			double xEnd = xStart + finalVol;
+
+		//			Ellipse eli = new Ellipse(new Vector2((float)xEnd, (float)yMiddle), 3, 3);
+		//			switch (l.i)
+		//			{
+		//				case 1:
+		//					RenderTarget.FillEllipse(eli, Brushes.White.ToDxBrush(RenderTarget));
+		//					break;
+		//				case 2:
+		//					RenderTarget.FillEllipse(eli, Brushes.Lime.ToDxBrush(RenderTarget));
+		//					break;
+		//				case 3:
+		//					RenderTarget.FillEllipse(eli, Brushes.Green.ToDxBrush(RenderTarget));
+		//					break;
+		//				case 4:
+		//					RenderTarget.FillEllipse(eli, Brushes.DarkGreen.ToDxBrush(RenderTarget));
+		//					break;
+		//				case 5:
+		//					RenderTarget.FillEllipse(eli, Brushes.Red.ToDxBrush(RenderTarget));
+		//					break;
+		//			}
+		//		}
+		//		catch { }
+		//	}
+
+		//	foreach (lines l in ll)
+		//	{
+		//		try
+		//		{
+		//			double finalVol = Math.Abs(l.volume);
+		//			double xStart = chartControl.GetXByBarIndex(ChartBars, ChartBars.FromIndex);
+		//			finalVol = (finalVol * (WidthFactor / 100)) * chartControl.ActualWidth;
+
+		//			double yMiddle = chartScale.GetYByValue(l.price);
+		//			double xEnd = xStart + finalVol;
+		//			strokeStyleProperties = new StrokeStyleProperties
+		//			{
+		//				DashStyle = dashes
+		//			};
+
+		//			if (l.volume > 0)
+		//				RenderTarget.DrawLine(new Vector2((float)xStart, (float)yMiddle), new Vector2((float)xEnd, (float)yMiddle), Positive.ToDxBrush(RenderTarget), 2, new StrokeStyle(Core.Globals.D2DFactory, strokeStyleProperties));
+		//			else
+		//				RenderTarget.DrawLine(new Vector2((float)xStart, (float)yMiddle), new Vector2((float)xEnd, (float)yMiddle), Negative.ToDxBrush(RenderTarget), 2, new StrokeStyle(Core.Globals.D2DFactory, strokeStyleProperties));
+		//		}
+		//		catch { }
+		//	}
+		//}
+		#endregion
+
+		#region Timed Event / Render				
 
 		private void OnFuckYoCouch(object sender, ElapsedEventArgs e)
 		{
@@ -624,52 +830,83 @@ namespace NinjaTrader.NinjaScript.Indicators
 		[Display(Name = "Line Length Ratio", GroupName = GENERAL_GROUP, Order = 8)]
 		public double WidthFactor { get; set; }
 
-		//[NinjaScriptProperty]
-		//[TypeConverter(typeof(LineLocation))]
-		//[Display(Name = "Line Position", GroupName = GENERAL_GROUP, Order = 8)]
-		//public string lineLoc { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "Aling Eje X Profile", GroupName = GENERAL_GROUP, Order = 9)]
+        public GexAlingEjeProfile GexAlingEjeProfile { get; set; }
 
-		[Display(Name = "X Position of Status Text", GroupName = GENERAL_GROUP, Order = 9)]
+        [NinjaScriptProperty]
+        [Display(Name = "Bars direction", GroupName = GENERAL_GROUP, Order = 10)]
+        public GexDirectionProfile DireccionPerfil { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "X Posicion Perfil", GroupName = GENERAL_GROUP, Order = 11)]
+        public int xPosPerfil { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "With Perfil", GroupName = GENERAL_GROUP, Order = 12)]
+        public int withPerfil { get; set; }        
+
+
+        [Display(Name = "X Position of Status Text", GroupName = GENERAL_GROUP, Order = 13)]
 		public int iPos { get; set; }
 
-		[Display(Name = "Offset From Right", GroupName = GENERAL_GROUP, Order = 10)]
+		[Display(Name = "Offset From Right", GroupName = GENERAL_GROUP, Order = 14)]
 		public int rightOffset { get; set; }
 
 		[NinjaScriptProperty]
-		[Display(Name = "Conversion Factor", GroupName = GENERAL_GROUP, Order = 11)]
+		[Display(Name = "Conversion Factor", GroupName = GENERAL_GROUP, Order = 15)]
 		public float convFactor { get; set; }
 
 		[NinjaScriptProperty]
-		[Display(Name = "Main Refresh (seconds)", GroupName = GENERAL_GROUP, Order = 12)]
+		[Display(Name = "Main Refresh (seconds)", GroupName = GENERAL_GROUP, Order = 16)]
 		public int iRefresh { get; set; }
 
 		[NinjaScriptProperty]
-		[Display(Name = "MaxChange Refresh (seconds)", GroupName = GENERAL_GROUP, Order = 13)]
+		[Display(Name = "MaxChange Refresh (seconds)", GroupName = GENERAL_GROUP, Order = 17)]
 		public int iCouchRefresh { get; set; }
 
-		[Display(Name = "Show Max Change on Prices", GroupName = GENERAL_GROUP, Order = 14)]
+		[Display(Name = "Show Max Change on Prices", GroupName = GENERAL_GROUP, Order = 18)]
 		public bool bShowMaxChange { get; set; }
 
-		[Display(Name = "Show Status Text", GroupName = GENERAL_GROUP, Order = 15)]
+		[Display(Name = "Show Status Text", GroupName = GENERAL_GROUP, Order = 19)]
 		public bool bShowStatus { get; set; }
 
         [XmlIgnore]
-        [Display(Name = "Positive Line Color", GroupName = "Colors", Order = 16)]
+        [Display(Name = "Positive Line Color", GroupName = "Colors", Order = 20)]
         public Brush Positive
         { get; set; }
 
         [XmlIgnore]
-        [Display(Name = "Negative Line Color", GroupName = "Colors", Order = 17)]
+        [Display(Name = "Negative Line Color", GroupName = "Colors", Order = 21)]
         public Brush Negative
         { get; set; }
 
-		#endregion
-	}
+        [XmlIgnore]
+        [Display(Name = "Center Perfil Line Color", GroupName = "Colors", Order = 22)]
+        public Brush CenterProfile
+        { get; set; }
+
+        #endregion
+    }
 
 	public enum GexSubscriptionType
 	{
 		Classic,
 		State
+	}
+
+    public enum GexAlingEjeProfile
+    {
+        Left,
+        Rigth,
+		Personalize
+    }
+
+	public enum GexDirectionProfile
+	{
+		Left,
+		Rigth,
+		Both
 	}
 }
 
@@ -680,18 +917,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 	public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
 	{
 		private GexBot[] cacheGexBot;
-		public GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
-			return GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, convFactor, iRefresh, iCouchRefresh);
+			return GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, gexAlingEjeProfile, direccionPerfil, xPosPerfil, withPerfil, convFactor, iRefresh, iCouchRefresh);
 		}
 
-		public GexBot GexBot(ISeries<double> input, string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public GexBot GexBot(ISeries<double> input, string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
 			if (cacheGexBot != null)
 				for (int idx = 0; idx < cacheGexBot.Length; idx++)
-					if (cacheGexBot[idx] != null && cacheGexBot[idx].APIKey == aPIKey && cacheGexBot[idx].ticker == ticker && cacheGexBot[idx].SubscriptionType == subscriptionType && cacheGexBot[idx].nextFull == nextFull && cacheGexBot[idx].dotSize == dotSize && cacheGexBot[idx].Greek == greek && cacheGexBot[idx].GreekdotSize == greekdotSize && cacheGexBot[idx].WidthFactor == widthFactor && cacheGexBot[idx].convFactor == convFactor && cacheGexBot[idx].iRefresh == iRefresh && cacheGexBot[idx].iCouchRefresh == iCouchRefresh && cacheGexBot[idx].EqualsInput(input))
+					if (cacheGexBot[idx] != null && cacheGexBot[idx].APIKey == aPIKey && cacheGexBot[idx].ticker == ticker && cacheGexBot[idx].SubscriptionType == subscriptionType && cacheGexBot[idx].nextFull == nextFull && cacheGexBot[idx].dotSize == dotSize && cacheGexBot[idx].Greek == greek && cacheGexBot[idx].GreekdotSize == greekdotSize && cacheGexBot[idx].WidthFactor == widthFactor && cacheGexBot[idx].GexAlingEjeProfile == gexAlingEjeProfile && cacheGexBot[idx].DireccionPerfil == direccionPerfil && cacheGexBot[idx].xPosPerfil == xPosPerfil && cacheGexBot[idx].withPerfil == withPerfil && cacheGexBot[idx].convFactor == convFactor && cacheGexBot[idx].iRefresh == iRefresh && cacheGexBot[idx].iCouchRefresh == iCouchRefresh && cacheGexBot[idx].EqualsInput(input))
 						return cacheGexBot[idx];
-			return CacheIndicator<GexBot>(new GexBot(){ APIKey = aPIKey, ticker = ticker, SubscriptionType = subscriptionType, nextFull = nextFull, dotSize = dotSize, Greek = greek, GreekdotSize = greekdotSize, WidthFactor = widthFactor, convFactor = convFactor, iRefresh = iRefresh, iCouchRefresh = iCouchRefresh }, input, ref cacheGexBot);
+			return CacheIndicator<GexBot>(new GexBot(){ APIKey = aPIKey, ticker = ticker, SubscriptionType = subscriptionType, nextFull = nextFull, dotSize = dotSize, Greek = greek, GreekdotSize = greekdotSize, WidthFactor = widthFactor, GexAlingEjeProfile = gexAlingEjeProfile, DireccionPerfil = direccionPerfil, xPosPerfil = xPosPerfil, withPerfil = withPerfil, convFactor = convFactor, iRefresh = iRefresh, iCouchRefresh = iCouchRefresh }, input, ref cacheGexBot);
 		}
 	}
 }
@@ -700,14 +937,14 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
 	public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
 	{
-		public Indicators.GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public Indicators.GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
-			return indicator.GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, convFactor, iRefresh, iCouchRefresh);
+			return indicator.GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, gexAlingEjeProfile, direccionPerfil, xPosPerfil, withPerfil, convFactor, iRefresh, iCouchRefresh);
 		}
 
-		public Indicators.GexBot GexBot(ISeries<double> input , string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public Indicators.GexBot GexBot(ISeries<double> input , string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
-			return indicator.GexBot(input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, convFactor, iRefresh, iCouchRefresh);
+			return indicator.GexBot(input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, gexAlingEjeProfile, direccionPerfil, xPosPerfil, withPerfil, convFactor, iRefresh, iCouchRefresh);
 		}
 	}
 }
@@ -716,14 +953,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
 	{
-		public Indicators.GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public Indicators.GexBot GexBot(string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
-			return indicator.GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, convFactor, iRefresh, iCouchRefresh);
+			return indicator.GexBot(Input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, gexAlingEjeProfile, direccionPerfil, xPosPerfil, withPerfil, convFactor, iRefresh, iCouchRefresh);
 		}
 
-		public Indicators.GexBot GexBot(ISeries<double> input , string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, float convFactor, int iRefresh, int iCouchRefresh)
+		public Indicators.GexBot GexBot(ISeries<double> input , string aPIKey, string ticker, GexSubscriptionType subscriptionType, string nextFull, int dotSize, string greek, int greekdotSize, double widthFactor, GexAlingEjeProfile gexAlingEjeProfile, GexDirectionProfile direccionPerfil, int xPosPerfil, int withPerfil, float convFactor, int iRefresh, int iCouchRefresh)
 		{
-			return indicator.GexBot(input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, convFactor, iRefresh, iCouchRefresh);
+			return indicator.GexBot(input, aPIKey, ticker, subscriptionType, nextFull, dotSize, greek, greekdotSize, widthFactor, gexAlingEjeProfile, direccionPerfil, xPosPerfil, withPerfil, convFactor, iRefresh, iCouchRefresh);
 		}
 	}
 }
