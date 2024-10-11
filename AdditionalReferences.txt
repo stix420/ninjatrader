@@ -1,1 +1,0 @@
-*MyDocuments*\NinjaTrader 8\bin\Custom\Newtonsoft.Json.dll
