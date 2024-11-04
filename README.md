@@ -2,13 +2,14 @@
 
 CS file included at top level.
 
-If you're importing the zip file as an addon, but you're getting an "import failed... duplicate method ... " message, then firstly, check this directory:
+NOTE:
+If you're importing the zip file as an addon, but you're getting an "import failed... duplicate method ... " message,
+then it's highly likely you've already installed the json parser (Newtonsoft.json.dll, which is included in the zip file), and it's in this directory:
 
 > Documents\NinjaTrader 8\bin\Custom
 
-for the Newtonsoft.json.dll file. If you're getting the import failed error it's highly likely you've already installed the json parser prior.
-If it's there, simply take the Gexbot.cs file (it's both in the zip as well as in the top level of this repostiroy) and place it into your
+If the Newtonsoft.json.dll is in that directory, then take JUST the Gexbot.cs file (either extract from zip or take from the top level of this github repo) and place it into this directory:
 
 > Documents\NinjaTrader 8\bin\Custom\Indicators
 
-folder. You should see a bunch of other cs files in there, just place the Gexbot.cs file (and nothing else from the zip!) in there. Then you should be able to add it onto your chart normally.
+Then you should be able to add it onto your chart normally.
