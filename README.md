@@ -2,6 +2,8 @@ UPDATED INSTALL INSTRUCTIONS (1/2/24):
 
 First, download the GexBot.cs file, and the Newtonsoft.Json.dll.
 
+IMPORTANT: the Newtonsoft DLL MUST be placed into the bin/Custom folder before adding the reference to it in the NT Editor. It will not work otherwise (even though it will compile, the indicator will fail at run-time).
+
 Open a new Ninjascript Editor. Right click the blank space and go to "References". In your list of references, if you do not have a reference to "newtonsoft.Json.dll", then click "add" and go to the file location to where you downloaded or placed the Newtonsoft DLL. Add it and click OK.
 
 Next, click the "+" sign at the bottom of the Ninjascript Editor to create a "New Indicator". Name it "Gexbot" (or whatever you want), you can fill in the description. Hit Generate (no need to bother with the other settings).
